@@ -1,0 +1,234 @@
+%==============================================================================
+% IEEEtran LaTeX Template for ClinX Clinical Paper
+%==============================================================================
+\documentclass[10pt, conference, compsocconf]{IEEEtran}
+% For journal: \documentclass[10pt, journal, compsoc]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{balance}
+
+%==============================================================================
+% MACROS & NOTATION
+%==============================================================================
+\newcommand{\nt}{Nucleotide Transformer}
+\newcommand{\esm}{ESM-2}
+\newcommand{\acmg}{ACMG/AMP}
+\newcommand{\vus}{VUS}
+\newcommand{\cds}{CDS}
+\newcommand{\clinvar}{ClinVar}
+\newcommand{\uniprot}{UniProt}
+\newcommand{\grch}{GRCh38}
+\newcommand{\pval}{$p$-value}
+\newcommand{\etal}{\textit{et al.}}
+\newcommand{\ie}{\textit{i.e.}}
+\newcommand{\eg}{\textit{e.g.}}
+\newcommand{\etc}{\textit{etc.}}
+\newcommand{\wrt}{\textit{w.r.t.}}
+\newcommand{\fig}{Fig.}
+\newcommand{\tab}{Table}
+\newcommand{\alg}{Algorithm}
+\newcommand{\secn}{Section}
+\newcommand{\eqn}{Eq.}
+
+%==============================================================================
+% DOCUMENT
+%==============================================================================
+\begin{document}
+
+\title{ClinX Clinical: An Integrated Deep Learning and ACMG Framework\\for Clinical-Grade Genomic Variant Interpretation}
+
+\author{
+\IEEEauthorblockN{
+First Author\IEEEauthorrefmark{1},
+Second Author\IEEEauthorrefmark{2},
+Third Author\IEEEauthorrefmark{1},
+and Senior Author\IEEEauthorrefmark{3}
+}
+\IEEEauthorblockA{
+\IEEEauthorrefmark{1}Department of Computer Science, Institution, City, Country\\
+email@domain.com
+}
+\IEEEauthorblockA{
+\IEEEauthorrefmark{2}Department of Genetics, Institution, City, Country\\
+email@domain.com
+}
+\IEEEauthorrefmark{3}Corresponding Author: Senior Author, Department, Institution, City, Country\\
+email@domain.com
+}
+
+\maketitle
+
+\begin{abstract}
+Clinical interpretation of genomic variants remains a critical bottleneck in precision medicine, with 40--60\% of variants classified as Variants of Uncertain Significance (\vus). Existing automated tools lack integration of state-of-the-art deep learning models with calibrated scoring and complete \acmg\ 2015 rule implementation. We present \textbf{ClinX Clinical}, an end-to-end clinical-grade variant interpretation system that integrates: (1) \nt\ for DNA-level pseudolikelihood scoring with gene-specific empirical calibration; (2) \esm\ for protein-level mutational effect prediction; (3) robust transcript mapping via Ensembl REST API with curated fallbacks for clinical genes; (4) a complete Bayesian \acmg\ classification engine implementing all 28 evidence criteria; and (5) \clinvar/\uniprot\ evidence integration. Deployed as a FastAPI/React system with Google Colab A100 GPU acceleration, ClinX Clinical achieves \textbf{XX\%} concordance with \clinvar\ expert classifications on a benchmark of 50 \textit{BRCA1}/\textit{TP53} variants, reducing \vus\ rate by \textbf{XX\%} while maintaining \textbf{>90\%} pathogenic recall. The system provides a scalable, transparent framework for clinical variant triage.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Genomic Variant Interpretation, ACMG/AMP Guidelines, Deep Learning, Nucleotide Transformer, ESM-2, Clinical Bioinformatics, Precision Medicine, BRCA1, TP53
+\end{IEEEkeywords}
+
+%==============================================================================
+% I. INTRODUCTION
+%==============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+% [~800 words]
+% 1. Clinical variant interpretation crisis - VUS rates, manual curation bottleneck
+% 2. Current landscape - CADD, REVEL, AlphaMissense, InterVar, Franklin, Varsome
+% 3. Critical gaps (4-5 bullet points)
+% 4. Our contributions (5 numbered contributions - C1 to C5)
+% 5. Paper organization
+
+%==============================================================================
+% II. RELATED WORK
+%==============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Deep Learning for Variant Effect Prediction}
+% Nucleotide Transformer, ESM-2, AlphaMissense
+% Gap: no dual-model integration with calibration
+
+\subsection{ACMG/AMP Automation Tools}
+% Table comparing InterVar, Franklin, Varsome, ClinX
+% Criteria coverage, scoring method, DL integration, deployment
+
+\subsection{Clinical Variant Databases}
+% ClinVar, UniProt, gnomAD
+
+\subsection{Calibration in Genomic Deep Learning}
+% Temperature scaling, isotonic regression
+% Gap: no gene-specific empirical calibration
+
+%==============================================================================
+% III. METHODOLOGY
+%==============================================================================
+\section{ClinX Clinical Framework}
+\label{sec:methodology}
+
+% Fig. 1: System Architecture Pipeline
+
+\subsection{System Architecture}
+\label{sec:architecture}
+% FastAPI backend, React frontend, Colab A100 GPU, <10s latency
+
+\subsection{Transcript Mapping and CDS Localization}
+\label{sec:transcript}
+% Algorithm 1: Genomic-to-CDS mapping
+% Table I: Curated fallback mappings (22 variants)
+
+\subsection{DNA-Level Scoring: Nucleotide Transformer with Calibration}
+\label{sec:dna}
+% Algorithm 2: Calibrated DNA scoring
+% Fig. 2: Calibration curves
+% Table II: Gene-specific calibration parameters
+
+\subsection{Protein-Level Scoring: ESM-2}
+\label{sec:protein}
+% Algorithm 3: Protein mutational effect scoring
+
+\subsection{ACMG/AMP 2015 Bayesian Classification Engine}
+\label{sec:acmg}
+% Table III: 28 criteria implementation status
+% Algorithm 4: Bayesian classification
+% Fig. 3: ACMG decision flowchart
+
+\subsection{Clinical Evidence Integration}
+\label{sec:evidence}
+% ClinVar eUtils API, UniProt REST, caching strategy
+
+%==============================================================================
+% IV. EXPERIMENTAL SETUP
+%==============================================================================
+\section{Experimental Setup}
+\label{sec:experiments}
+
+\subsection{Benchmark Dataset}
+% Table IV: 50 variants (25 BRCA1, 25 TP53) with ClinVar truth
+
+\subsection{Baseline Methods}
+% Table: CADD, REVEL, AlphaMissense, InterVar, ClinVar Consensus
+
+\subsection{Evaluation Metrics}
+% Accuracy, Macro-F1, Pathogenic Recall, VUS Rate, Cohen's kappa, ECE
+
+\subsection{Hardware and Reproducibility}
+% Colab A100, CPU specs, latency, code availability
+
+%==============================================================================
+% V. RESULTS
+%==============================================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{Overall Classification Performance}
+% Table V: Comparison table
+% Fig. 4: Confusion matrix
+
+\subsection{Per-Class Analysis}
+% Table VI: Per-class P/R/F1
+
+\subsection{VUS Reclassification Impact}
+% Fig. 5: Sankey diagram
+
+\subsection{Ablation Study}
+% Table VII: Component ablation
+% Fig. 6: Ablation bar chart
+
+\subsection{Calibration Effectiveness}
+% Fig. 7: Reliability diagrams
+
+\subsection{Computational Performance}
+% Table VIII: Latency breakdown
+
+%==============================================================================
+% VI. DISCUSSION
+%==============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Clinical Utility}
+% Triage, VUS resolution, transparency, scalability
+
+\subsection{Comparison to State-of-the-Art}
+% vs InterVar, Franklin, AlphaMissense
+
+\subsection{Limitations}
+% 1. Gene scope, 2. Population data, 3. Splicing, 4. Circularity, 5. Frameshift protein, 6. Clinical validation
+
+\subsection{Ethical and Regulatory Considerations}
+% CDS guidance, clinician-in-loop, privacy, bias
+
+\subsection{Future Work}
+% Multi-gene panels, gnomAD, SpliceAI, prospective trial, FHIR
+
+%==============================================================================
+% VII. CONCLUSION
+%==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% Summary, key results, clinical impact, availability, final statement
+
+%==============================================================================
+% REFERENCES
+%==============================================================================
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+%==============================================================================
+% BIOGRAPHIES (for journal)
+%==============================================================================
+%\begin{IEEEbiography}[{\includegraphics[width=1in,height=1.25in,clip,keepaspectratio]{author1.jpg}}]{First Author}
+%Biography text...
+%\end{IEEEbiography}
+
+\end{document}

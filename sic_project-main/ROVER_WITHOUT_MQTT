@@ -1,0 +1,333 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+// --- HOTSPOT CREDENTIALS ---
+const char* ap_ssid = "ESP32_Rover";
+const char* ap_password = "password123"; // Must be at least 8 characters
+
+// --- HARDWARE PIN CONFIGURATION ---
+const int MOTOR_L_PWM = 12;
+const int MOTOR_L_IN1 = 13;
+const int MOTOR_L_IN2 = 14;
+const int MOTOR_R_PWM = 25;
+const int MOTOR_R_IN3 = 26;
+const int MOTOR_R_IN4 = 27;
+
+const int IR_LEFT_PIN  = 34;
+const int IR_RIGHT_PIN = 35;
+
+// Ultrasonic 1 (Front - Obstacle Detection)
+const int ULTRA_F_TRIG = 33;
+const int ULTRA_F_ECHO = 23;
+
+// Ultrasonic 2 (Rear - Reverse Assist)
+const int ULTRA_R_TRIG = 5;
+const int ULTRA_R_ECHO = 18;
+
+// Gas Sensor & Alarm
+const int GAS_SENSOR_PIN = 4;
+const int BUZZER_PIN = 19;
+
+// --- SYSTEM STATES ---
+enum RoverState { STATE_MANUAL, STATE_AUTO };
+RoverState currentState = STATE_MANUAL;
+char currentManualCmd[15] = "STOP"; 
+char currentAlert[30] = "System Ready";
+
+// --- SENSOR VARIABLES & FLAGS ---
+float frontDist = 999.0;
+float rearDist = 999.0;
+const float STOP_DISTANCE = 20.0; // cm
+
+bool obstacleAheadFlag = false;
+bool objectBehindFlag = false;
+bool gasAlertFlag = false;
+
+unsigned long lastSensorTime = 0;
+const unsigned long SENSOR_INTERVAL = 100; // Read sensors every 100ms
+unsigned long lastCmdTime = 0;             // Safety timeout for web commands
+
+// --- OBJECT INITIALIZATION ---
+WebServer server(80);
+
+// --- PROTOTYPES ---
+void setupAP();
+void driveMotors(int leftSpeed, int rightSpeed);
+void stopMotors();
+void runLineFollowing();
+float getDistance(int trigPin, int echoPin);
+void updateAlertStatus(const char* alert);
+
+// ==============================================================================
+// HTML WEB PAGE (Stored in Program Memory to save RAM)
+// ==============================================================================
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AGV Direct Control</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a; --panel-bg: #1e293b; --accent-blue: #38bdf8;
+            --accent-green: #10b981; --alert-red: #ef4444; --text-main: #f8fafc;
+        }
+        body { background-color: var(--bg-dark); color: var(--text-main); font-family: sans-serif; text-align: center; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; touch-action: manipulation; }
+        
+        #hud-banner { width: 100%; padding: 15px 20px; background-color: var(--panel-bg); border-bottom: 2px solid var(--accent-green); display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; font-weight: 600; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+        .hud-stat { display: flex; flex-direction: column; text-align: left; }
+        .hud-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; }
+        .hud-value { font-size: 1.25rem; margin-top: 2px; }
+        #alert-text { font-weight: bold; color: var(--accent-green); }
+
+        .mode-container { margin: 30px auto; display: flex; gap: 15px; background: var(--panel-bg); padding: 8px; border-radius: 50px; }
+        .mode-btn { padding: 15px 30px; font-size: 16px; font-weight: bold; border-radius: 40px; border: none; cursor: pointer; color: var(--text-main); background: transparent; border: 1px solid #475569; }
+        .active-mode { background: var(--accent-blue); border-color: var(--accent-blue); }
+
+        .controls { display: grid; grid-template-columns: repeat(3, 80px); grid-template-rows: repeat(3, 80px); gap: 15px; justify-content: center; margin-top: 20px; }
+        .btn { background: var(--panel-bg); color: var(--text-main); border: 2px solid #334155; font-size: 28px; border-radius: 16px; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: center; }
+        .btn:active { background: var(--accent-blue); border-color: var(--accent-blue); }
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-stop { grid-column: 2; grid-row: 2; border-color: var(--alert-red); color: var(--alert-red); }
+        .btn-stop:active { background: var(--alert-red); color: white; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 3; }
+    </style>
+</head>
+<body>
+    <div id="hud-banner">
+        <div class="hud-stat">
+            <span class="hud-label">System Status</span>
+            <span class="hud-value" id="alert-text">All Clear</span>
+        </div>
+        <div class="hud-stat" style="text-align: right;">
+            <span class="hud-label">Front Dist</span>
+            <span class="hud-value"><span id="dist-text">0.0</span> cm</span>
+        </div>
+    </div>
+
+    <div class="mode-container">
+        <button id="btn-manual" class="mode-btn active-mode" onclick="sendCmd('MODE', 'MANUAL')">MANUAL</button>
+        <button id="btn-auto" class="mode-btn" onclick="sendCmd('MODE', 'AUTO')">AUTO</button>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-up" onmousedown="sendCmd('MOVE', 'FORWARD')" onmouseup="sendCmd('MOVE', 'STOP')" ontouchstart="event.preventDefault(); sendCmd('MOVE', 'FORWARD')" ontouchend="event.preventDefault(); sendCmd('MOVE', 'STOP')">▲</button>
+        <button class="btn btn-left" onmousedown="sendCmd('MOVE', 'LEFT')" onmouseup="sendCmd('MOVE', 'STOP')" ontouchstart="event.preventDefault(); sendCmd('MOVE', 'LEFT')" ontouchend="event.preventDefault(); sendCmd('MOVE', 'STOP')">◀</button>
+        <button class="btn btn-stop" onmousedown="sendCmd('MOVE', 'STOP')" ontouchstart="event.preventDefault(); sendCmd('MOVE', 'STOP')">■</button>
+        <button class="btn btn-right" onmousedown="sendCmd('MOVE', 'RIGHT')" onmouseup="sendCmd('MOVE', 'STOP')" ontouchstart="event.preventDefault(); sendCmd('MOVE', 'RIGHT')" ontouchend="event.preventDefault(); sendCmd('MOVE', 'STOP')">▶</button>
+        <button class="btn btn-down" onmousedown="sendCmd('MOVE', 'REVERSE')" onmouseup="sendCmd('MOVE', 'STOP')" ontouchstart="event.preventDefault(); sendCmd('MOVE', 'REVERSE')" ontouchend="event.preventDefault(); sendCmd('MOVE', 'STOP')">▼</button>
+    </div>
+
+    <script>
+        function sendCmd(type, val) {
+            fetch(`/cmd?type=${type}&val=${val}`).catch(e => console.error(e));
+        }
+
+        setInterval(() => {
+            fetch('/status')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('dist-text').innerText = data.distance;
+                    const alertText = document.getElementById('alert-text');
+                    const banner = document.getElementById('hud-banner');
+                    
+                    if (data.alert !== "All Clear") {
+                        alertText.innerText = "⚠️ " + data.alert;
+                        alertText.style.color = "var(--alert-red)";
+                        banner.style.borderBottomColor = "var(--alert-red)";
+                    } else {
+                        alertText.innerText = "All Clear";
+                        alertText.style.color = "var(--accent-green)";
+                        banner.style.borderBottomColor = "var(--accent-green)";
+                    }
+
+                    document.getElementById('btn-manual').classList.toggle('active-mode', data.mode === 'MANUAL');
+                    document.getElementById('btn-auto').classList.toggle('active-mode', data.mode === 'AUTO');
+                }).catch(e => console.error(e));
+        }, 500);
+        
+        window.oncontextmenu = function(e) { e.preventDefault(); e.stopPropagation(); return false; };
+    </script>
+</body>
+</html>
+)rawliteral";
+
+// ==============================================================================
+// WEB SERVER HANDLERS
+// ==============================================================================
+void handleRoot() {
+  server.send(200, "text/html", index_html);
+}
+
+void handleCommand() {
+  if (server.hasArg("type") && server.hasArg("val")) {
+    String type = server.arg("type");
+    String val = server.arg("val");
+
+    if (type == "MODE") {
+      if (val == "MANUAL") { currentState = STATE_MANUAL; strcpy(currentManualCmd, "STOP"); stopMotors(); }
+      else if (val == "AUTO") { currentState = STATE_AUTO; updateAlertStatus("All Clear"); }
+    } 
+    else if (type == "MOVE" && currentState == STATE_MANUAL) {
+      val.toCharArray(currentManualCmd, 15);
+      lastCmdTime = millis(); // Reset safety timeout
+    }
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Bad Request");
+  }
+}
+
+void handleStatus() {
+  char json[128];
+  const char* modeStr = (currentState == STATE_AUTO) ? "AUTO" : "MANUAL";
+  snprintf(json, sizeof(json), "{\"mode\":\"%s\", \"alert\":\"%s\", \"distance\":%.1f}", modeStr, currentAlert, frontDist);
+  server.send(200, "application/json", json);
+}
+
+// ==============================================================================
+// MAIN SETUP & LOOP
+// ==============================================================================
+void setup() {
+  Serial.begin(115200);
+
+  setupAP();
+
+  // Setup Web Server Endpoints
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/cmd", HTTP_GET, handleCommand);
+  server.on("/status", HTTP_GET, handleStatus);
+  server.begin();
+  Serial.println("HTTP Server Started.");
+
+  pinMode(MOTOR_L_PWM, OUTPUT); pinMode(MOTOR_L_IN1, OUTPUT); pinMode(MOTOR_L_IN2, OUTPUT);
+  pinMode(MOTOR_R_PWM, OUTPUT); pinMode(MOTOR_R_IN3, OUTPUT); pinMode(MOTOR_R_IN4, OUTPUT);
+  pinMode(IR_LEFT_PIN, INPUT);  pinMode(IR_RIGHT_PIN, INPUT);
+  pinMode(ULTRA_F_TRIG, OUTPUT); pinMode(ULTRA_F_ECHO, INPUT);
+  pinMode(ULTRA_R_TRIG, OUTPUT); pinMode(ULTRA_R_ECHO, INPUT);
+  
+  pinMode(GAS_SENSOR_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+}
+
+void loop() {
+  server.handleClient(); // Process incoming HTTP web requests
+
+  // FAILSAFE: Stop if phone disconnects from the Wi-Fi network
+  if (WiFi.softAPgetStationNum() == 0) {
+    stopMotors();
+    strcpy(currentManualCmd, "STOP");
+  }
+
+  // --- SENSOR POLLING ---
+  if (millis() - lastSensorTime >= SENSOR_INTERVAL) {
+    frontDist = getDistance(ULTRA_F_TRIG, ULTRA_F_ECHO);
+    delay(10); 
+    rearDist = getDistance(ULTRA_R_TRIG, ULTRA_R_ECHO);
+    lastSensorTime = millis();
+    
+    // Evaluate Front Obstacles
+    if (frontDist > 0 && frontDist <= STOP_DISTANCE) {
+      if (!obstacleAheadFlag) { obstacleAheadFlag = true; updateAlertStatus("Obstacle Ahead"); }
+    } else if (obstacleAheadFlag) {
+      obstacleAheadFlag = false; updateAlertStatus("All Clear");
+    }
+
+    // Evaluate Rear Obstacles
+    if (strcmp(currentManualCmd, "REVERSE") == 0 && currentState == STATE_MANUAL) {
+      if (rearDist > 0 && rearDist <= STOP_DISTANCE) {
+        if (!objectBehindFlag) { objectBehindFlag = true; updateAlertStatus("Object Behind"); }
+      } else if (objectBehindFlag) {
+        objectBehindFlag = false; updateAlertStatus("All Clear");
+      }
+    }
+    
+    // Evaluate Gas Detection
+    int gasState = digitalRead(GAS_SENSOR_PIN); 
+    if (gasState == LOW) { 
+      if (!gasAlertFlag) {
+        gasAlertFlag = true; digitalWrite(BUZZER_PIN, HIGH); updateAlertStatus("GAS LEAK DETECTED");
+      }
+    } else if (gasAlertFlag) {
+      gasAlertFlag = false; digitalWrite(BUZZER_PIN, LOW); updateAlertStatus("All Clear");
+    }
+  }
+
+  // --- MOTOR EXECUTION LOGIC ---
+  if (currentState == STATE_AUTO) {
+    if (obstacleAheadFlag || gasAlertFlag || WiFi.softAPgetStationNum() == 0) {
+      stopMotors();
+    } else {
+      runLineFollowing();
+    }
+  } 
+  else if (currentState == STATE_MANUAL) {
+    // FAILSAFE: Stop if web interface crashes or drops button release
+    if (millis() - lastCmdTime > 1000 && strcmp(currentManualCmd, "STOP") != 0) {
+      strcpy(currentManualCmd, "STOP");
+      stopMotors();
+    }
+    else if (strcmp(currentManualCmd, "FORWARD") == 0 && obstacleAheadFlag) stopMotors(); 
+    else if (strcmp(currentManualCmd, "REVERSE") == 0 && objectBehindFlag) stopMotors(); 
+    else if (gasAlertFlag) stopMotors(); 
+    else {
+      if (strcmp(currentManualCmd, "FORWARD") == 0) driveMotors(200, 200);
+      else if (strcmp(currentManualCmd, "REVERSE") == 0) driveMotors(-200, -200);
+      else if (strcmp(currentManualCmd, "LEFT") == 0) driveMotors(-150, 150);
+      else if (strcmp(currentManualCmd, "RIGHT") == 0) driveMotors(150, -150);
+      else stopMotors();
+    }
+  }
+}
+
+// ==============================================================================
+// HELPER FUNCTIONS
+// ==============================================================================
+void updateAlertStatus(const char* alert) {
+  strncpy(currentAlert, alert, sizeof(currentAlert) - 1);
+  currentAlert[sizeof(currentAlert) - 1] = '\0';
+}
+
+float getDistance(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 20000); 
+  if (duration == 0) return 999.0;
+  return (duration * 0.0343) / 2;
+}
+
+void runLineFollowing() {
+  int leftIR = digitalRead(IR_LEFT_PIN);
+  int rightIR = digitalRead(IR_RIGHT_PIN);
+  if (leftIR == 0 && rightIR == 0) driveMotors(180, 180);
+  else if (leftIR == 1 && rightIR == 0) driveMotors(60, 180);
+  else if (leftIR == 0 && rightIR == 1) driveMotors(180, 60);
+  else stopMotors();
+}
+
+void driveMotors(int leftSpeed, int rightSpeed) {
+  digitalWrite(MOTOR_L_IN1, leftSpeed >= 0 ? HIGH : LOW);
+  digitalWrite(MOTOR_L_IN2, leftSpeed >= 0 ? LOW : HIGH);
+  digitalWrite(MOTOR_R_IN3, rightSpeed >= 0 ? HIGH : LOW);
+  digitalWrite(MOTOR_R_IN4, rightSpeed >= 0 ? LOW : HIGH);
+  analogWrite(MOTOR_L_PWM, abs(leftSpeed));
+  analogWrite(MOTOR_R_PWM, abs(rightSpeed));
+}
+
+void stopMotors() {
+  analogWrite(MOTOR_L_PWM, 0); 
+  analogWrite(MOTOR_R_PWM, 0);
+}
+
+void setupAP() {
+  Serial.println("Configuring Access Point...");
+  WiFi.softAP(ap_ssid, ap_password);
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
+}

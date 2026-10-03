@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+scikit-learn
+joblib
+pywavelets
+pyserial
+# tkinter (system package): install via OS, e.g. `pacman -S tk` on Arch
